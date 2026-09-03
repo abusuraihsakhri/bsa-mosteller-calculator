@@ -190,6 +190,28 @@ def test_batch_csv():
         assert os.path.exists(out)
 
 
+def test_boyd_formula():
+    """Test Boyd formula for standard adult 170cm, 70kg -> ~1.81 m²."""
+    result = bsa.bsa_boyd(170, 70)
+    assert 1.75 < result < 1.88, result
+
+
+def test_gfr_normalization():
+    """Test GFR indexing to 1.73 m² BSA."""
+    # BSA 2.0 m², raw GFR 100 mL/min -> 100 * (1.73 / 2.0) = 86.5 mL/min/1.73m²
+    norm = bsa.normalize_gfr_to_bsa(100.0, 2.0)
+    assert math.isclose(norm, 86.5, abs_tol=0.01)
+    denorm = bsa.denormalize_gfr_from_bsa(norm, 2.0)
+    assert math.isclose(denorm, 100.0, abs_tol=0.01)
+
+
+def test_calculate_patient_with_gfr():
+    result = bsa.calculate_patient("P_GFR", 170, 70, gfr_raw_ml_min=90.0)
+    assert result.gfr_raw_ml_min == 90.0
+    assert result.gfr_indexed_1_73m2 is not None
+    assert result.bsa_boyd is not None
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -200,7 +222,7 @@ def test_cli_single():
 
 
 def test_cli_single_with_dose():
-    rc = bsa.main(["single", "--height", "170", "--weight", "70", "--dose-per-m2", "100"])
+    rc = bsa.main(["single", "--height", "170", "--weight", "70", "--dose-per-m2", "100", "--gfr", "85"])
     assert rc == 0
 
 
@@ -214,6 +236,29 @@ def test_cli_batch():
         rc = bsa.main(["batch", "--input", inp, "--output", out])
         assert rc == 0
         assert os.path.exists(out)
+
+
+def test_cli_batch_short_flags():
+    with tempfile.TemporaryDirectory() as tmp:
+        inp = os.path.join(tmp, "in.csv")
+        out = os.path.join(tmp, "out.csv")
+        with open(inp, "w", newline="") as f:
+            f.write("patient_id,age,sex,height_cm,weight_kg,dose_per_m2,gfr_raw_ml_min,preferred_formula\n")
+            f.write("PT-1,50,M,175,75,100,80,Mosteller\n")
+        rc = bsa.main(["batch", "-i", inp, "-o", out])
+        assert rc == 0
+        assert os.path.exists(out)
+
+
+def test_batch_sample_csv():
+    """Verify processing the project's actual sample.csv."""
+    sample_path = os.path.join(os.path.dirname(__file__), "..", "sample.csv")
+    if os.path.exists(sample_path):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "sample_out.csv")
+            rc = bsa.main(["batch", "-i", sample_path, "-o", out])
+            assert rc == 0
+            assert os.path.exists(out)
 
 
 # ---------------------------------------------------------------------------

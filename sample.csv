@@ -1,3 +1,9 @@
-id,value,qty
-A,10,2
-B,20,3
+patient_id,age,sex,height_cm,weight_kg,dose_per_m2,gfr_raw_ml_min,preferred_formula
+PT-101,62,M,178.0,82.5,100.0,78.0,Mosteller
+PT-102,48,F,162.5,58.0,60.0,92.0,DuBois
+PT-103,7,M,122.0,24.0,30.0,110.0,Haycock
+PT-104,55,F,168.0,95.0,75.0,64.0,Mosteller
+PT-105,71,M,172.0,68.0,50.0,45.0,GehanGeorge
+PT-106,34,F,155.0,49.0,80.0,105.0,Boyd
+PT-107,67,M,185.0,112.0,100.0,58.0,Mosteller
+PT-108,11,F,142.0,36.5,40.0,95.0,Haycock
