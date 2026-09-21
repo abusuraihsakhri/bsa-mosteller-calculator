@@ -1,109 +1,106 @@
 #!/usr/bin/env python3
+"""Generic protocol-supplied BSA dose adjustment arithmetic.
+
+Earlier versions embedded drug-specific doses and ad-hoc renal/hepatic
+multipliers. Those values were not a validated prescribing knowledge base and
+have been removed. This module now performs arithmetic only on values explicitly
+supplied by the caller.
 """
-BSA Pharmacokinetic Adjustments for BSA Mosteller Calculator.
-Adjusts drug dosing based on BSA, renal function, and hepatic status.
-"""
 
-from typing import Dict, Any, Optional
-from dataclasses import dataclass
+import math
+from typing import Any, Dict, Optional
 
 
-@dataclass
-class DrugProfile:
-    """PK profile for a drug requiring BSA-based dosing."""
-    name: str
-    base_dose_mg_per_m2: float
-    renal_adjustment: bool
-    hepatic_adjustment: bool
-    max_dose_mg: float
-    narrow_therapeutic: bool
+def _nonnegative(name: str, value: float) -> float:
+    value = float(value)
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"{name} must be a finite non-negative number")
+    return value
 
 
-PK_DRUGS = {
-    "methotrexate": DrugProfile("Methotrexate", 40.0, True, False, 1000.0, True),
-    "5fluorouracil": DrugProfile("5-Fluorouracil", 500.0, False, True, 4000.0, True),
-    "carboplatin": DrugProfile("Carboplatin", 300.0, True, False, 750.0, True),
-    "docetaxel": DrugProfile("Docetaxel", 75.0, False, True, 150.0, True),
-    "bleomycin": DrugProfile("Bleomycin", 10.0, True, False, 30.0, True),
-    "cyclophosphamide": DrugProfile("Cyclophosphamide", 600.0, False, False, 2000.0, False),
-    "doxorubicin": DrugProfile("Doxorubicin", 60.0, False, True, 120.0, True),
-    "paclitaxel": DrugProfile("Paclitaxel", 175.0, False, False, 350.0, False),
-}
+def calculate_protocol_adjusted_dose(
+    bsa: float,
+    dose_per_m2: float,
+    renal_multiplier: float = 1.0,
+    hepatic_multiplier: float = 1.0,
+    max_dose_mg: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Apply caller-supplied protocol values without inferring clinical rules."""
+    bsa = _nonnegative("bsa", bsa)
+    if bsa == 0:
+        raise ValueError("bsa must be greater than zero")
+    dose_per_m2 = _nonnegative("dose_per_m2", dose_per_m2)
+    renal_multiplier = _nonnegative("renal_multiplier", renal_multiplier)
+    hepatic_multiplier = _nonnegative("hepatic_multiplier", hepatic_multiplier)
 
-
-def calculate_bsa_pharmacokinetic_adjustment(drug_name: str, bsa: float,
-                                              crcl: float = 120.0,
-                                              alt: float = 40.0) -> Dict[str, Any]:
-    """Calculate BSA-based drug dose with PK adjustments."""
-    drug = PK_DRUGS.get(drug_name)
-    if not drug:
-        return {"error": f"Unknown drug: {drug_name}. Available: {list(PK_DRUGS.keys())}"}
-
-    base_dose = drug.base_dose_mg_per_m2 * bsa
-    adjustment_factors = []
-    total_factor = 1.0
-
-    if drug.renal_adjustment and crcl < 60:
-        rf = max(0.25, crcl / 120.0)
-        total_factor *= rf
-        adjustment_factors.append(f"Renal (CrCl {crcl:.0f}): x{rf:.2f}")
-
-    if drug.hepatic_adjustment and alt > 120:
-        hf = max(0.5, 1.0 - ((alt - 120) / 200))
-        total_factor *= hf
-        adjustment_factors.append(f"Hepatic (ALT {alt:.0f}): x{hf:.2f}")
-
-    adjusted_dose = min(base_dose * total_factor, drug.max_dose_mg)
-
-    monitoring = ["CBC before each cycle"]
-    if drug.renal_adjustment:
-        monitoring.append("BUN/Cr before each cycle")
-    if drug.hepatic_adjustment:
-        monitoring.append("LFTs weekly")
-    if drug.narrow_therapeutic:
-        monitoring.append("Drug level monitoring if available")
+    base = bsa * dose_per_m2
+    adjusted = base * renal_multiplier * hepatic_multiplier
+    capped = False
+    if max_dose_mg is not None:
+        cap = _nonnegative("max_dose_mg", max_dose_mg)
+        capped = adjusted > cap
+        adjusted = min(adjusted, cap)
 
     return {
-        "drug": drug.name,
-        "bsa_m2": round(bsa, 2),
-        "base_dose_mg": round(base_dose, 1),
-        "adjustment_factors": adjustment_factors,
-        "total_factor": round(total_factor, 3),
-        "adjusted_dose_mg": round(adjusted_dose, 1),
-        "max_dose_mg": drug.max_dose_mg,
-        "monitoring": monitoring,
+        "bsa_m2": round(bsa, 4),
+        "dose_per_m2": round(dose_per_m2, 4),
+        "base_dose_mg": round(base, 4),
+        "renal_multiplier": round(renal_multiplier, 4),
+        "hepatic_multiplier": round(hepatic_multiplier, 4),
+        "max_dose_mg": max_dose_mg,
+        "dose_capped": capped,
+        "adjusted_dose_mg": round(adjusted, 4),
     }
 
 
-class BsaPharmacokineticAgent:
-    """Sub-agent for BSA pharmacokinetic adjustments."""
+def calculate_bsa_pharmacokinetic_adjustment(
+    drug_name: str,
+    bsa: float,
+    crcl: float = 120.0,
+    alt: float = 40.0,
+    **protocol: Any,
+) -> Dict[str, Any]:
+    """Compatibility entry point with unsafe implicit dosing removed.
 
-    def __init__(self):
+    Supply dose_per_m2 and any adjustment multipliers explicitly. crcl and alt
+    are accepted for compatibility but are not converted into dose multipliers.
+    """
+    if "dose_per_m2" not in protocol:
+        return {
+            "error": "No embedded drug dose is available. Supply a verified dose_per_m2 explicitly.",
+            "drug": drug_name,
+            "crcl": crcl,
+            "alt": alt,
+        }
+
+    result = calculate_protocol_adjusted_dose(
+        bsa=bsa,
+        dose_per_m2=protocol["dose_per_m2"],
+        renal_multiplier=protocol.get("renal_multiplier", 1.0),
+        hepatic_multiplier=protocol.get("hepatic_multiplier", 1.0),
+        max_dose_mg=protocol.get("max_dose_mg"),
+    )
+    result.update({"drug": drug_name, "crcl": crcl, "alt": alt})
+    return result
+
+
+class BsaPharmacokineticAgent:
+    """Compatibility wrapper for protocol-supplied dose arithmetic."""
+
+    def __init__(self) -> None:
         self.agent_name = "BsaPharmacokineticAgent"
 
     def evaluate(self, drug_name: str, bsa: float, crcl: float = 120.0,
-                 alt: float = 40.0) -> Dict[str, Any]:
-        """Evaluate BSA-based drug dosing."""
-        result = calculate_bsa_pharmacokinetic_adjustment(drug_name, bsa, crcl, alt)
+                 alt: float = 40.0, **protocol: Any) -> Dict[str, Any]:
+        result = calculate_bsa_pharmacokinetic_adjustment(
+            drug_name, bsa, crcl, alt, **protocol
+        )
         alerts = []
-
         if "error" in result:
             alerts.append({
-                "type": "INVALID_DRUG", "severity": "ERROR",
+                "type": "PROTOCOL_INPUT_REQUIRED",
+                "severity": "ERROR",
                 "message": result["error"],
-                "recommendation": "Select from available drugs."
+                "recommendation": "Use verified prescribing or protocol data; no dose is inferred by this module.",
             })
-        elif result["total_factor"] < 0.5:
-            alerts.append({
-                "type": "MAJOR_DOSE_REDUCTION", "severity": "WARNING",
-                "message": f"Dose reduced to {result['total_factor']*100:.0f}% due to organ impairment.",
-                "recommendation": "Consider alternative agent. Close monitoring required."
-            })
-        elif result["adjusted_dose_mg"] >= result["max_dose_mg"]:
-            alerts.append({
-                "type": "DOSE_CAP", "severity": "INFO",
-                "message": f"Dose capped at maximum ({result['max_dose_mg']}mg).",
-                "recommendation": "Cap applied per protocol."
-            })
-
         return {"pk_result": result, "alerts": alerts}
