@@ -62,3 +62,16 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify deployed application
+        run: |
+          SITE="https://abusuraihsakhri.github.io/bsa-mosteller-calculator/"
+          curl --fail --silent --show-error --location --retry 10 --retry-delay 3 --retry-all-errors "$SITE" -o /tmp/index.html
+          grep -q "Body Surface Area Calculator" /tmp/index.html
+          curl --fail --silent --show-error --location --retry 5 --retry-delay 2 --retry-all-errors "${SITE}assets/app.js" -o /tmp/app.js
+          grep -q "calculateRecord" /tmp/app.js
+          echo "Live GitHub Pages smoke test passed: $SITE"
