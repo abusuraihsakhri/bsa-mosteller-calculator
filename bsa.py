@@ -113,17 +113,21 @@ def denormalize_gfr_from_bsa(normalized_gfr: float, bsa_m2: float) -> float:
 # BSA classification
 # ---------------------------------------------------------------------------
 
-NORMAL_BSA_RANGE = (1.6, 2.0)  # m², typical adult
+REFERENCE_BSA_RANGE = (1.6, 2.0)  # m²; descriptive legacy comparison band, not a treatment threshold
+NORMAL_BSA_RANGE = REFERENCE_BSA_RANGE  # backward-compatible alias
 
 
 def classify_bsa(bsa_m2: float) -> str:
-    """Classify BSA relative to normal adult range."""
-    if bsa_m2 < NORMAL_BSA_RANGE[0]:
-        return "Below normal range"
-    elif bsa_m2 > NORMAL_BSA_RANGE[1]:
-        return "Above normal range"
-    else:
-        return "Within normal range"
+    """Describe BSA relative to the configured reference band.
+
+    This label is descriptive only and must not be used as a treatment threshold.
+    """
+    bsa_m2 = _require_positive_finite("bsa_m2", bsa_m2)
+    if bsa_m2 < REFERENCE_BSA_RANGE[0]:
+        return "Below reference band"
+    if bsa_m2 > REFERENCE_BSA_RANGE[1]:
+        return "Above reference band"
+    return "Within reference band"
 
 
 # ---------------------------------------------------------------------------
