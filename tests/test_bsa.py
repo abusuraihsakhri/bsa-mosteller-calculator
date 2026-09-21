@@ -110,15 +110,15 @@ def test_formulas_agree_within_tolerance():
 # ---------------------------------------------------------------------------
 
 def test_classify_normal():
-    assert "normal" in bsa.classify_bsa(1.8).lower()
+    assert "within reference band" in bsa.classify_bsa(1.8).lower()
 
 
 def test_classify_below_normal():
-    assert "below" in bsa.classify_bsa(1.4).lower()
+    assert "below reference band" in bsa.classify_bsa(1.4).lower()
 
 
 def test_classify_above_normal():
-    assert "above" in bsa.classify_bsa(2.3).lower()
+    assert "above reference band" in bsa.classify_bsa(2.3).lower()
 
 
 # ---------------------------------------------------------------------------
