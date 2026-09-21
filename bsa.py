@@ -24,6 +24,20 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+def _require_positive_finite(name: str, value: float) -> float:
+    value = float(value)
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a finite positive number.")
+    return value
+
+
+def _require_nonnegative_finite(name: str, value: float) -> float:
+    value = float(value)
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"{name} must be a finite non-negative number.")
+    return value
+
+
 # ---------------------------------------------------------------------------
 # BSA Formulas
 # ---------------------------------------------------------------------------
@@ -31,26 +45,36 @@ from typing import Optional
 
 def bsa_mosteller(height_cm: float, weight_kg: float) -> float:
     """Mosteller formula (1987): BSA = sqrt((H * W) / 3600)."""
+    height_cm = _require_positive_finite("height_cm", height_cm)
+    weight_kg = _require_positive_finite("weight_kg", weight_kg)
     return math.sqrt((height_cm * weight_kg) / 3600.0)
 
 
 def bsa_dubois(height_cm: float, weight_kg: float) -> float:
     """Du Bois & Du Bois formula (1916): BSA = 0.007184 * H^0.725 * W^0.425."""
+    height_cm = _require_positive_finite("height_cm", height_cm)
+    weight_kg = _require_positive_finite("weight_kg", weight_kg)
     return 0.007184 * (height_cm ** 0.725) * (weight_kg ** 0.425)
 
 
 def bsa_haycock(height_cm: float, weight_kg: float) -> float:
     """Haycock formula (1978): BSA = 0.024265 * H^0.3964 * W^0.5378."""
+    height_cm = _require_positive_finite("height_cm", height_cm)
+    weight_kg = _require_positive_finite("weight_kg", weight_kg)
     return 0.024265 * (height_cm ** 0.3964) * (weight_kg ** 0.5378)
 
 
 def bsa_gehan_george(height_cm: float, weight_kg: float) -> float:
     """Gehan & George formula (1970): BSA = 0.0235 * H^0.42246 * W^0.51456."""
+    height_cm = _require_positive_finite("height_cm", height_cm)
+    weight_kg = _require_positive_finite("weight_kg", weight_kg)
     return 0.0235 * (height_cm ** 0.42246) * (weight_kg ** 0.51456)
 
 
 def bsa_boyd(height_cm: float, weight_kg: float) -> float:
     """Boyd formula (1935): BSA = 0.0003207 * H^0.3 * (W_grams)^(0.7285 - 0.0188 * log10(W_grams))."""
+    height_cm = _require_positive_finite("height_cm", height_cm)
+    weight_kg = _require_positive_finite("weight_kg", weight_kg)
     weight_grams = weight_kg * 1000.0
     exponent = 0.7285 - 0.0188 * math.log10(weight_grams)
     return 0.0003207 * (height_cm ** 0.3) * (weight_grams ** exponent)
@@ -70,8 +94,8 @@ def normalize_gfr_to_bsa(raw_gfr_ml_min: float, bsa_m2: float) -> float:
 
     Formula: Normalized GFR (mL/min/1.73 m²) = Raw GFR (mL/min) * (1.73 / BSA)
     """
-    if bsa_m2 <= 0:
-        raise ValueError("BSA must be positive to normalize GFR.")
+    raw_gfr_ml_min = _require_nonnegative_finite("raw_gfr_ml_min", raw_gfr_ml_min)
+    bsa_m2 = _require_positive_finite("bsa_m2", bsa_m2)
     return raw_gfr_ml_min * (1.73 / bsa_m2)
 
 
@@ -80,6 +104,8 @@ def denormalize_gfr_from_bsa(normalized_gfr: float, bsa_m2: float) -> float:
 
     Formula: Raw GFR (mL/min) = Normalized GFR * (BSA / 1.73)
     """
+    normalized_gfr = _require_nonnegative_finite("normalized_gfr", normalized_gfr)
+    bsa_m2 = _require_positive_finite("bsa_m2", bsa_m2)
     return normalized_gfr * (bsa_m2 / 1.73)
 
 
@@ -87,17 +113,21 @@ def denormalize_gfr_from_bsa(normalized_gfr: float, bsa_m2: float) -> float:
 # BSA classification
 # ---------------------------------------------------------------------------
 
-NORMAL_BSA_RANGE = (1.6, 2.0)  # m², typical adult
+REFERENCE_BSA_RANGE = (1.6, 2.0)  # m²; descriptive legacy comparison band, not a treatment threshold
+NORMAL_BSA_RANGE = REFERENCE_BSA_RANGE  # backward-compatible alias
 
 
 def classify_bsa(bsa_m2: float) -> str:
-    """Classify BSA relative to normal adult range."""
-    if bsa_m2 < NORMAL_BSA_RANGE[0]:
-        return "Below normal range"
-    elif bsa_m2 > NORMAL_BSA_RANGE[1]:
-        return "Above normal range"
-    else:
-        return "Within normal range"
+    """Describe BSA relative to the configured reference band.
+
+    This label is descriptive only and must not be used as a treatment threshold.
+    """
+    bsa_m2 = _require_positive_finite("bsa_m2", bsa_m2)
+    if bsa_m2 < REFERENCE_BSA_RANGE[0]:
+        return "Below reference band"
+    if bsa_m2 > REFERENCE_BSA_RANGE[1]:
+        return "Above reference band"
+    return "Within reference band"
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +145,8 @@ def chemotherapy_dose(bsa_m2: float, dose_per_m2: float) -> float:
     Returns:
         Total dose in same units as dose_per_m2
     """
+    bsa_m2 = _require_positive_finite("bsa_m2", bsa_m2)
+    dose_per_m2 = _require_nonnegative_finite("dose_per_m2", dose_per_m2)
     return bsa_m2 * dose_per_m2
 
 
@@ -174,10 +206,13 @@ def calculate_patient(
     """Calculate BSA using all standard formulas for one patient."""
     warnings: list[str] = []
 
-    if height_cm <= 0:
-        warnings.append(f"Height {height_cm} must be positive.")
-    if weight_kg <= 0:
-        warnings.append(f"Weight {weight_kg} must be positive.")
+    if not math.isfinite(height_cm) or height_cm <= 0:
+        warnings.append(f"Height {height_cm} must be a finite positive number.")
+    if not math.isfinite(weight_kg) or weight_kg <= 0:
+        warnings.append(f"Weight {weight_kg} must be a finite positive number.")
+    if preferred_formula not in FORMULAS:
+        warnings.append(f"Unknown BSA formula {preferred_formula!r}; using Mosteller.")
+        preferred_formula = "Mosteller"
 
     result = BSAResult(
         patient_id=patient_id,
@@ -189,7 +224,8 @@ def calculate_patient(
         warnings=warnings,
     )
 
-    if height_cm <= 0 or weight_kg <= 0:
+    if (not math.isfinite(height_cm) or height_cm <= 0 or
+            not math.isfinite(weight_kg) or weight_kg <= 0):
         return result
 
     result.bsa_mosteller = round(bsa_mosteller(height_cm, weight_kg), 4)
@@ -213,12 +249,22 @@ def calculate_patient(
         result.bsa_classification = classify_bsa(primary)
 
     if dose_per_m2 is not None and primary is not None:
-        result.chemo_dose_per_m2 = dose_per_m2
-        result.chemo_dose = round(chemotherapy_dose(primary, dose_per_m2), 2)
+        try:
+            dose_per_m2 = _require_nonnegative_finite("dose_per_m2", dose_per_m2)
+        except ValueError as exc:
+            result.warnings.append(str(exc))
+        else:
+            result.chemo_dose_per_m2 = dose_per_m2
+            result.chemo_dose = round(chemotherapy_dose(primary, dose_per_m2), 2)
 
     if gfr_raw_ml_min is not None and primary is not None and primary > 0:
-        result.gfr_raw_ml_min = gfr_raw_ml_min
-        result.gfr_indexed_1_73m2 = round(normalize_gfr_to_bsa(gfr_raw_ml_min, primary), 2)
+        try:
+            gfr_raw_ml_min = _require_nonnegative_finite("gfr_raw_ml_min", gfr_raw_ml_min)
+        except ValueError as exc:
+            result.warnings.append(str(exc))
+        else:
+            result.gfr_raw_ml_min = gfr_raw_ml_min
+            result.gfr_indexed_1_73m2 = round(normalize_gfr_to_bsa(gfr_raw_ml_min, primary), 2)
 
     return result
 
@@ -420,6 +466,14 @@ def _print_single_result(result: BSAResult) -> None:
     demographics.append(f"Weight: {result.weight_kg:.1f} kg")
     print(f"  {' | '.join(demographics)}")
 
+    if result.primary_bsa() is None:
+        print("\n  Calculation not performed because height and weight must be finite positive values.")
+        if result.warnings:
+            print("\n  Warnings:")
+            for w in result.warnings:
+                print(f"    - {w}")
+        return
+
     print(f"\n  BSA Results:")
     print(f"    Mosteller (1987):   {result.bsa_mosteller:.4f} m²")
     print(f"    Du Bois (1916):     {result.bsa_dubois:.4f} m²")
@@ -464,7 +518,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             preferred_formula=args.formula,
         )
         _print_single_result(result)
-        return 0
+        return 0 if result.primary_bsa() is not None else 2
 
     if args.command == "batch":
         results = process_csv(args.input, args.output)

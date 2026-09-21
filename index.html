@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Body surface area calculator using Mosteller, Du Bois, Haycock, Gehan–George, and Boyd formulas.">
+  <meta name="color-scheme" content="light dark">
+  <title>Body Surface Area Calculator</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Clinical calculation utility</p>
+        <h1>Body Surface Area Calculator</h1>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="false">Dark</button>
+    </header>
+
+    <main class="workspace">
+      <section class="panel input-panel" aria-labelledby="input-title">
+        <div class="panel-heading">
+          <div>
+            <p class="step">Inputs</p>
+            <h2 id="input-title">Anthropometrics</h2>
+          </div>
+          <button class="text-button" id="reset-button" type="button">Reset</button>
+        </div>
+
+        <form id="calculator-form" novalidate>
+          <div class="field-grid two-col">
+            <label class="field">
+              <span>Height <small>cm</small></span>
+              <input id="height" name="height" type="number" inputmode="decimal" min="0.1" step="0.1" value="170" required autocomplete="off">
+            </label>
+            <label class="field">
+              <span>Weight <small>kg</small></span>
+              <input id="weight" name="weight" type="number" inputmode="decimal" min="0.1" step="0.1" value="70" required autocomplete="off">
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Primary formula</span>
+            <select id="formula" name="formula">
+              <option value="Mosteller">Mosteller</option>
+              <option value="DuBois">Du Bois</option>
+              <option value="Haycock">Haycock</option>
+              <option value="GehanGeorge">Gehan–George</option>
+              <option value="Boyd">Boyd</option>
+            </select>
+          </label>
+
+          <div class="field-grid two-col optional-row">
+            <label class="field">
+              <span>Dose per m² <small>optional</small></span>
+              <input id="dose" name="dose" type="number" inputmode="decimal" min="0" step="any" placeholder="e.g. 75" autocomplete="off">
+            </label>
+            <label class="field">
+              <span>Absolute GFR <small>optional</small></span>
+              <input id="gfr" name="gfr" type="number" inputmode="decimal" min="0" step="any" placeholder="mL/min" autocomplete="off">
+            </label>
+          </div>
+
+          <p class="helper">Optional fields perform arithmetic only. No regimen, dose cap, renal adjustment, or treatment rule is inferred.</p>
+          <p id="error-message" class="error" role="alert" hidden></p>
+          <button class="primary-button" type="submit">Calculate</button>
+        </form>
+      </section>
+
+      <section class="panel results-panel" aria-labelledby="results-title" aria-live="polite">
+        <div class="panel-heading result-heading">
+          <div>
+            <p class="step">Result</p>
+            <h2 id="results-title">Calculated BSA</h2>
+          </div>
+          <span class="formula-chip" id="primary-formula">Mosteller</span>
+        </div>
+
+        <div class="primary-result">
+          <span id="primary-value">1.8181 m²</span>
+          <small>selected formula</small>
+        </div>
+
+        <div class="metric-grid" aria-label="Derived values">
+          <div class="metric">
+            <span>Formula mean</span>
+            <strong id="mean-value">—</strong>
+          </div>
+          <div class="metric">
+            <span>Formula spread</span>
+            <strong id="spread-value">—</strong>
+          </div>
+          <div class="metric">
+            <span>BSA × dose/m²</span>
+            <strong id="dose-value">—</strong>
+          </div>
+          <div class="metric">
+            <span>Indexed GFR</span>
+            <strong id="gfr-value">—</strong>
+          </div>
+        </div>
+
+        <div class="comparison-wrap">
+          <div class="section-label">Formula comparison</div>
+          <table>
+            <thead>
+              <tr><th scope="col">Formula</th><th scope="col">BSA</th></tr>
+            </thead>
+            <tbody id="comparison-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>All calculations run locally in your browser.</span>
+      <span>Calculation aid only; verify clinical use against the applicable source protocol.</span>
+    </footer>
+  </div>
+</body>
+</html>
