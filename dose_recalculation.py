@@ -1,100 +1,128 @@
 #!/usr/bin/env python3
-"""
-BSA-based chemotherapy dosing engine.
+"""Protocol-agnostic helpers for BSA arithmetic.
 
-Real oncology pharmacy rules:
-  - Dose = BSA x mg/m2, rounded to the nearest 5 mg unless vial rounding applies
-  - Protocol re-consent/re-calculation required when BSA changes >10% between cycles
-  - Institutional BSA caps (e.g. cap at 2.0 m2) truncate the effective BSA used
-  - Carboplatin uses the Calvert formula: Dose(mg) = AUC x (GFR + 25), with GFR
-    commonly capped at 125 mL/min; GFR estimated by Cockcroft-Gault
+This module deliberately does not encode drug-specific doses, mandatory BSA
+caps, rounding rules, or treatment thresholds. Those decisions must come from a
+verified regimen, prescribing information, trial protocol, or institutional
+policy.
 """
 
+import math
 from dataclasses import dataclass
 from typing import Optional
 
-from bsa_formulas import Anthropometrics, bsa_mosteller
 
-
-@dataclass
+@dataclass(frozen=True)
 class CycleRecord:
     cycle_number: int
     bsa_m2: float
 
 
-def calculate_dose(bsa_m2: float, mg_per_m2: float,
-                   round_to_mg: float = 5.0,
-                   institutional_bsa_cap: Optional[float] = None) -> dict:
-    effective_bsa = min(bsa_m2, institutional_bsa_cap) if institutional_bsa_cap else bsa_m2
-    raw = effective_bsa * mg_per_m2
-    rounded = round(raw / round_to_mg) * round_to_mg
-    capped = institutional_bsa_cap is not None and bsa_m2 > institutional_bsa_cap
+def _positive(name: str, value: float) -> float:
+    value = float(value)
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return value
+
+
+def _nonnegative(name: str, value: float) -> float:
+    value = float(value)
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"{name} must be a finite non-negative number")
+    return value
+
+
+def calculate_dose(
+    bsa_m2: float,
+    mg_per_m2: float,
+    round_to_mg: Optional[float] = None,
+    institutional_bsa_cap: Optional[float] = None,
+) -> dict:
+    """Apply caller-supplied BSA, dose density, optional cap, and rounding."""
+    bsa = _positive("bsa_m2", bsa_m2)
+    dose_density = _nonnegative("mg_per_m2", mg_per_m2)
+
+    cap = None
+    if institutional_bsa_cap is not None:
+        cap = _positive("institutional_bsa_cap", institutional_bsa_cap)
+
+    effective_bsa = min(bsa, cap) if cap is not None else bsa
+    raw = effective_bsa * dose_density
+
+    if round_to_mg is None:
+        administered = raw
+        rounding_rule = "none"
+    else:
+        increment = _positive("round_to_mg", round_to_mg)
+        administered = round(raw / increment) * increment
+        rounding_rule = f"nearest {increment:g} mg"
+
     return {
-        "nominal_dose_mg": round(raw, 1),
-        "administered_dose_mg": rounded,
-        "effective_bsa_m2": round(effective_bsa, 3),
-        "bsa_capped": capped,
-        "rounding_rule": f"nearest {round_to_mg:g} mg",
+        "nominal_dose_mg": round(raw, 4),
+        "administered_dose_mg": round(administered, 4),
+        "effective_bsa_m2": round(effective_bsa, 4),
+        "bsa_capped": cap is not None and bsa > cap,
+        "rounding_rule": rounding_rule,
     }
 
 
-def check_cycle_to_cycle_change(prev: CycleRecord, curr: CycleRecord,
-                                threshold_pct: float = 10.0) -> dict:
-    delta_pct = ((curr.bsa_m2 - prev.bsa_m2) / prev.bsa_m2) * 100.0
-    requires_review = abs(delta_pct) > threshold_pct
-    direction = "increase" if delta_pct > 0 else "decrease"
-    return {
+def check_cycle_to_cycle_change(
+    prev: CycleRecord,
+    curr: CycleRecord,
+    threshold_pct: Optional[float] = None,
+) -> dict:
+    """Report BSA change; optionally compare with a caller-supplied threshold."""
+    previous = _positive("prev.bsa_m2", prev.bsa_m2)
+    current = _positive("curr.bsa_m2", curr.bsa_m2)
+    delta_pct = ((current - previous) / previous) * 100.0
+
+    result = {
         "cycles": [prev.cycle_number, curr.cycle_number],
         "bsa_change_pct": round(delta_pct, 2),
-        "direction": direction if abs(delta_pct) > 0.05 else "stable",
-        "protocol_action": ("DOSE RECALCULATION REQUIRED (>%.0f%% change)" % threshold_pct
-                            if requires_review else "continue protocol dose"),
+        "direction": "increase" if delta_pct > 0.05 else "decrease" if delta_pct < -0.05 else "stable",
+        "threshold_pct": None,
+        "threshold_exceeded": None,
     }
+    if threshold_pct is not None:
+        threshold = _nonnegative("threshold_pct", threshold_pct)
+        result["threshold_pct"] = threshold
+        result["threshold_exceeded"] = abs(delta_pct) > threshold
+    return result
 
 
 def cockcroft_gault(age_years: float, weight_kg: float, serum_creatinine_mg_dl: float,
                     female: bool) -> float:
+    """Return Cockcroft-Gault creatinine clearance using supplied inputs.
+
+    The caller is responsible for selecting the appropriate weight convention
+    and confirming whether Cockcroft-Gault is appropriate for the intended use.
+    """
+    age = _nonnegative("age_years", age_years)
+    if age >= 140:
+        raise ValueError("age_years must be less than 140 for this equation")
+    weight = _positive("weight_kg", weight_kg)
+    creatinine = _positive("serum_creatinine_mg_dl", serum_creatinine_mg_dl)
     factor = 0.85 if female else 1.0
-    crcl = ((140.0 - age_years) * weight_kg * factor) / \
-           (72.0 * serum_creatinine_mg_dl)
-    return round(crcl, 1)
+    return round(((140.0 - age) * weight * factor) / (72.0 * creatinine), 1)
 
 
 def calvert_carboplatin(target_auc: float, gfr_ml_min: float,
-                        gfr_cap: float = 125.0) -> dict:
-    effective_gfr = min(gfr_ml_min, gfr_cap)
-    dose = target_auc * (effective_gfr + 25.0)
+                        gfr_cap: Optional[float] = None) -> dict:
+    """Evaluate the Calvert arithmetic with a caller-supplied GFR value.
+
+    No GFR estimation method or cap is chosen automatically. If gfr_cap is
+    supplied, it is treated as protocol input rather than a default standard.
+    """
+    auc = _positive("target_auc", target_auc)
+    gfr = _nonnegative("gfr_ml_min", gfr_ml_min)
+    cap = _positive("gfr_cap", gfr_cap) if gfr_cap is not None else None
+    effective_gfr = min(gfr, cap) if cap is not None else gfr
+    dose = auc * (effective_gfr + 25.0)
     return {
-        "target_auc": target_auc,
-        "reported_gfr": gfr_ml_min,
-        "capped_gfr_used": effective_gfr,
-        "carboplatin_dose_mg": round(dose),
-        "formula": "Calvert: Dose = AUC x (GFR + 25)",
+        "target_auc": auc,
+        "reported_gfr": gfr,
+        "gfr_cap": cap,
+        "gfr_used": effective_gfr,
+        "carboplatin_dose_mg": round(dose, 2),
+        "formula": "Calvert: dose = AUC × (GFR + 25)",
     }
-
-
-if __name__ == "__main__":
-    anthro = Anthropometrics(168, 78)
-    bsa_now = bsa_mosteller(anthro)
-
-    d = calculate_dose(bsa_now, mg_per_m2=75, institutional_bsa_cap=2.0)
-    print(f"Cyclophosphamide 75 mg/m2 at BSA {d['effective_bsa_m2']} m2 -> "
-          f"{d['administered_dose_mg']} mg (capped={d['bsa_capped']})")
-
-    c1 = CycleRecord(1, 2.30)
-    c2 = CycleRecord(2, round(bsa_now, 3))
-    chk = check_cycle_to_cycle_change(c1, c2)
-    print(f"\nCycle 1->2 BSA {chk['bsa_change_pct']:+.1f}% ({chk['direction']})")
-    print(f"action: {chk['protocol_action']}")
-
-    gfr = cockcroft_gault(age_years=64, weight_kg=78, serum_creatinine_mg_dl=1.1,
-                          female=False)
-    carb = calvert_carboplatin(target_auc=5.0, gfr_ml_min=gfr)
-    print(f"\nCockcroft-Gault CrCl = {gfr} mL/min")
-    print(f"Calvert AUC 5 -> {carb['carboplatin_dose_mg']} mg carboplatin "
-          f"(GFR used {carb['capped_gfr_used']})")
-
-    big = cockcroft_gault(35, 120, 0.7, False)
-    print(f"AUC 6 with CrCl {big}: dose = "
-          f"{calvert_carboplatin(6.0, big)['carboplatin_dose_mg']} mg "
-          f"(GFR capped at 125)")
