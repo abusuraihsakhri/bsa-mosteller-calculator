@@ -9,8 +9,8 @@ Implements the five standard BSA models:
     Gehan-George   0.0235    * H^0.42246 * W^0.51456
     Boyd           0.0003207 * H^0.3 * Wg^(0.7285 - 0.0188*log10(Wg))
 
-Reports the mean, spread, and flags disagreement >2% (typical institutional
-tolerance for dose-affecting BSA discrepancies).
+Reports the mean, spread, and comparison against a caller-selected tolerance.
+The tolerance is descriptive and is not a clinical acceptance threshold.
 """
 
 import math
@@ -65,8 +65,7 @@ def compute_all_bsa(a: Anthropometrics, tolerance_pct: float = 2.0) -> Dict:
     mean = sum(vals) / len(vals)
     spread = max(vals) - min(vals)
     cv = (max(abs(v - mean) for v in vals) / mean) * 100.0
-    pediatric = a.age_hint if hasattr(a, "age_hint") else False
-    preferred = "Haycock" if (pediatric or a.weight_kg < 30) else "Mosteller"
+    preferred = "Mosteller"
     return {
         "values_m2": values,
         "mean_m2": round(mean, 4),
@@ -74,6 +73,7 @@ def compute_all_bsa(a: Anthropometrics, tolerance_pct: float = 2.0) -> Dict:
         "max_deviation_pct": round(cv, 2),
         "agrees_within_tolerance": cv <= tolerance_pct,
         "preferred_formula": preferred,
+        "selection_note": "Formula selection should follow the applicable protocol or study method.",
     }
 
 
