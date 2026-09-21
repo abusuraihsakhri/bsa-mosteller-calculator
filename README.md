@@ -1,5 +1,7 @@
 # Body Surface Area Calculator
 
+### [Open the Live Application →](https://abusuraihsakhri.github.io/bsa-mosteller-calculator/)
+
 A browser and Python calculator for body surface area (BSA) using five established formulas: Mosteller, Du Bois & Du Bois, Haycock, Gehan–George, and Boyd.
 
 ## Features
